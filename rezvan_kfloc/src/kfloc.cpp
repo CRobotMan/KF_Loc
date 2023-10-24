@@ -7,7 +7,7 @@
 #include <tf/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include "eigen3/Eigen/Dense"
-#include <opencv2/opencv.hpp>
+//#include <opencv2/opencv.hpp>
 
 
 class kfFilter
@@ -17,9 +17,9 @@ class kfFilter
     {
         sub = n.subscribe("odom",10,&kfFilter::callback_odom, this);
         sub_laser = n.subscribe("/scan",10,&kfFilter::laserscan_callback, this);
-        cov_pub = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("COV",1);
+        cov_pub = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("covariance",1);
 
-        dt_1 = ros::Time::now(); 
+        prevt_1 = ros::Time::now(); 
         dt = 0;
 
         //Motion model matrix declaration
@@ -113,6 +113,9 @@ class kfFilter
     //from Odom
     geometry_msgs::Pose odom_pose; //get pose from odom
 
+
+    //for scan
+    int measurements;
     //robot velocities
     double v_linear; //linear velocity
     double w_angular; //angular velocity
@@ -126,7 +129,7 @@ class kfFilter
     double delta_w_angular;     //difference between previous and current angular velocity
     //time
     double dt;      //current time
-    ros::Time dt_1; //previous time t-1
+    ros::Time prevt_1; //previous time t-1
 
     std::vector<float> ranges;
 
@@ -135,6 +138,10 @@ class kfFilter
     ros::Subscriber sub;        //subscriber odom
     ros::Subscriber sub_laser;  //subscriber laser
     ros::Publisher cov_pub;     //publisher covariance
+
+    //landmark positions
+    double landmarkx = -3;
+    double landmarky = 0;
 
 
     //prediction Thrun 
@@ -145,17 +152,56 @@ class kfFilter
 
     }
 
+
     void correction(const Eigen::MatrixXd &z, const Eigen::MatrixXd &C, const Eigen::MatrixXd &Q)
     {
+        updateTime();
+
         K = covarianceMat * C.transpose() * (C * covarianceMat * C.transpose()+Q).inverse(); //PDF Slides Gaussian Filters line 4 p.11 - calculation of the Kalman gain
         xt = xt * K * (z - C * xt);                  //PDF Slides Gaussian Filters line 5 p.11 - correction of the expectation using the Kalman gain
         covarianceMat = (I - K * C) * covarianceMat; //PDF Slides Gaussian Filters line 6 p.11 - correction of covariance matrix
 
+        for(int i=0; i<1; i++)
+        {
+            if()
+        }
+
+    }
+
+    void updateMatrices()
+    {
+        A << 1, 0, dt, 0, 0, 0,
+             0, 1, 0, dt, 0, 0,
+             0, 0, 1, 0, dt, 0,
+             0, 0, 0, 1, 0, dt,
+             0, 0, 0, 0, 1, 0,
+             0, 0, 0, 0, 0, 1;
+
+        B << cos(theta)*dt, 0,
+             sin(theta)*dt, 0,
+             0, cos(theta)*dt,
+             0, sin(theta)*dt,
+             1, 0,
+             0, 1;
+
+        C << 1, 0, 1, 1, dt,
+             1, dt, dt*dt/2.0, dt*dt/2.0, dt*dt/6.0;
+    }
+
+    void updateTime()
+    {
+        ros::Time timeNow = ros::Time::now();
+        ros::Duration timediff = timeNow - prevt_1;
+        dt = timediff.toSec();
+        updateMatrices();
 
     }
 
     void callback_odom(const nav_msgs::Odometry::ConstPtr& msg)
     {
+        
+        updateTime();
+
         odom_pose = msg->pose.pose;//get odom pose
         
         v_linear = msg->twist.twist.linear.x; //get linear velocity
@@ -168,6 +214,7 @@ class kfFilter
         w_angular_1 = w_angular;                    //set the current angular velocity to t-1
 
 
+        predict(A, B, ut, R);
     }
 
     void cova_pose(geometry_msgs::PoseWithCovarianceStamped &cov_pose)
@@ -178,8 +225,8 @@ class kfFilter
         cov_pose.header.stamp = ros::Time::now();
 
         // set x,y coord
-        cov_pose.pose.pose.position.x = xt(0);
-        cov_pose.pose.pose.position.y = xt(1);
+        cov_pose.pose.pose.position.x = xt[0];
+        cov_pose.pose.pose.position.y = xt[1];
         cov_pose.pose.pose.position.z = 0.0;
 
 
@@ -196,20 +243,16 @@ class kfFilter
             }
         }
 
-
-
+        cov_pub.publish(cov_pose);
     }
 
     void laserscan_callback(const sensor_msgs::LaserScan::ConstPtr& laser)
     {
+        
         ranges = laser->ranges;
-        int measurements = ranges.size(); 
-
-        //Ivo
-
-                    
+        measurements = ranges.size(); 
+        correction(z, C, Q);
     }
-
 
 
 
