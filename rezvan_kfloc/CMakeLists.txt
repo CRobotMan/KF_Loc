@@ -14,12 +14,12 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   tf
 )
-find_package(OpenCV4 REQUIRED)
+# find_package(OpenCV4 REQUIRED)
 
-include_directories(${OpenCV4_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} ${OpenCV4_LIBRARIES})
+# include_directories(${OpenCV4_INCLUDE_DIRS})
+# target_link_libraries(${PROJECT_NAME} ${OpenCV4_LIBRARIES})
 
-# find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -166,6 +166,10 @@ target_link_libraries(move_base_robot ${catkin_LIBRARIES})
 add_executable(kfloc src/kfloc)
 
 target_link_libraries(kfloc ${catkin_LIBRARIES})
+
+add_executable(subscribertest src/subscribertest)
+
+target_link_libraries(subscribertest ${catkin_LIBRARIES})
 #############
 ## Install ##
 #############

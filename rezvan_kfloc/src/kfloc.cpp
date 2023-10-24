@@ -9,25 +9,38 @@
 #include "eigen3/Eigen/Dense"
 //#include <opencv2/opencv.hpp>
 
+//: ut(2), z(2), xt(6), v_lineart_1(0), w_angular_1(0), uv_1(0), uw_1(0)
+
 
 class kfFilter
 {
     public:
-    kfFilter() : ut(2), z(2), xt(6), v_lineart_1(0), w_angular_1(0), uv_1(0), uw_1(0)
+    kfFilter() : ut(2), z(3), xt(6), v_lineart_1(0), w_angular_1(0), uv_1(0), uw_1(0)
     {
+        // ut(2); 
+        // z(2); 
+        // xt(6);
+        // v_lineart_1=0; 
+        // w_angular_1=0; 
+        // uv_1=0; 
+        // uw_1=0;
+        
+        //ROS_INFO("Hier ist ein Konstruktor!");
+        ros::NodeHandle n;
         sub = n.subscribe("odom",10,&kfFilter::callback_odom, this);
-        sub_laser = n.subscribe("/scan",10,&kfFilter::laserscan_callback, this);
-        cov_pub = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("covariance",1);
+        sub_laser = n.subscribe("scan",10,&kfFilter::laserscan_callback, this);
+        cov_pub = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("/covariance",10);
+        pubkpose = n.advertise<geometry_msgs::PoseWithCovarianceStamped> ("/kfpose", 10);
 
         prevt_1 = ros::Time::now(); 
         dt = 0;
 
         //Motion model matrix declaration
         A = Eigen::MatrixXd::Identity(6, 6);
-        A << 1, 0, dt, 0, 0, 0,
-             0, 1, 0, dt, 0, 0,
-             0, 0, 1, 0, dt, 0,
-             0, 0, 0, 1, 0, dt,
+        A << 1, 0, 0, dt, 0, 0,
+             0, 1, 0, 0, dt, 0,
+             0, 0, 1, 0, 0, dt,
+             0, 0, 0, 1, 0, 0,
              0, 0, 0, 0, 1, 0,
              0, 0, 0, 0, 0, 1;
 
@@ -41,8 +54,8 @@ class kfFilter
              0, 1;
 
         C = Eigen::MatrixXd::Identity(2, 6);
-        C << 1, 0, 1, 1, dt,
-             1, dt, dt*dt/2.0, dt*dt/2.0, dt*dt/6.0;
+        C << 1, 0, 0, 1, dt, 0,
+             1, dt, 0, dt*dt/2.0, dt*dt/2.0, dt*dt/6.0;
 
         //Noise measurement matrix declaration
         Q = Eigen::MatrixXd::Identity(6,6);
@@ -51,12 +64,29 @@ class kfFilter
              0, 0, 0.1, 0, 0, 0,
              0, 0, 0, 0.1, 0, 0,
              0, 0, 0, 0, 0.1, 0,
-             0, 0, 0, 0, 0, 0.1,
+             0, 0, 0, 0, 0, 0.1;
+
+        //CovarianceMatrix
+        covarianceMat = Eigen::MatrixXd::Identity(6,6);
+        covarianceMat << 0.1, 0, 0, 0, 0, 0,
+                        0, 0.1, 0, 0, 0, 0,
+                        0, 0, 0.1, 0, 0, 0,
+                        0, 0, 0, 0.1, 0, 0,
+                        0, 0, 0, 0, 0.1, 0,
+                        0, 0, 0, 0, 0, 0.1;
 
         //Measurement noise matrix
         R = Eigen::MatrixXd::Identity(2,2);
         R << 0.01, 0,
              0, 0.01;
+        
+        I = Eigen::MatrixXd::Identity(6,6);
+
+        xt = Eigen::VectorXd::Zero(6);
+        xt << 0.5,0.5,0,0,0,0;
+
+        z = Eigen::VectorXd::Zero(2);
+        z << 0, 0;
     }
 
 
@@ -90,7 +120,6 @@ class kfFilter
 
     //Declaration Matrices/vectors for Kalman Filter
     Eigen::MatrixXd covarianceMat; //Covariance Matrix
-    Eigen::MatrixXd pred_sigma; //predicted Covariance Matrix
     Eigen::MatrixXd A; //motion model matrix
     Eigen::MatrixXd B; //motion command matrix
     Eigen::MatrixXd C; //measurement matrix
@@ -134,58 +163,75 @@ class kfFilter
     std::vector<float> ranges;
 
     //ros system variables
-    ros::NodeHandle n;
+    
     ros::Subscriber sub;        //subscriber odom
     ros::Subscriber sub_laser;  //subscriber laser
     ros::Publisher cov_pub;     //publisher covariance
+    ros::Publisher pubkpose;    
 
     //landmark positions
     double landmarkx = -3;
     double landmarky = 0;
 
-
+    public:
     //prediction Thrun 
-    void predict(const Eigen::MatrixXd &A, const Eigen::MatrixXd &B, const Eigen::VectorXd &ut, const Eigen::MatrixXd R)
+    void predict(const Eigen::MatrixXd &A, const Eigen::MatrixXd &B, const Eigen::VectorXd &ut)
     {
-        xt = A * xt + B* ut;                                    //PDF Slides Gaussian Filters line 2 p.11 - apply motion model
-        covarianceMat = A * covarianceMat * A.transpose()+R;    //PDF Slides Gaussian Filters line 3 p.11 - get prediction of covariance
+        // std::cout<<xt.rows()<<" "<<xt.cols()<<std::endl;
+        // std::cout<<B<<std::endl;
+         
+         
+        // std::cout<<B.rows()<<" "<< B.cols()<< std::endl;
+        // std::cout<<ut.rows()<<" "<<ut.cols()<<std::endl;
+        
 
+        xt = A * xt + B* ut;                                    //PDF Slides Gaussian Filters line 2 p.11 - apply motion model
+        covarianceMat = A * covarianceMat * A.transpose();    //PDF Slides Gaussian Filters line 3 p.11 - get prediction of covariance
+        //std::cout << "hier wird predict aufgerufen!"<< std::endl;
     }
 
 
     void correction(const Eigen::MatrixXd &z, const Eigen::MatrixXd &C, const Eigen::MatrixXd &Q)
     {
         updateTime();
-
-        K = covarianceMat * C.transpose() * (C * covarianceMat * C.transpose()+Q).inverse(); //PDF Slides Gaussian Filters line 4 p.11 - calculation of the Kalman gain
-        xt = xt * K * (z - C * xt);                  //PDF Slides Gaussian Filters line 5 p.11 - correction of the expectation using the Kalman gain
+        //Q fehlt
+        
+        
+        K = covarianceMat * C.transpose() * (C * covarianceMat * C.transpose()).inverse(); //PDF Slides Gaussian Filters line 4 p.11 - calculation of the Kalman gain
+        xt = xt + K * (z - C * xt);                  //PDF Slides Gaussian Filters line 5 p.11 - correction of the expectation using the Kalman gain
         covarianceMat = (I - K * C) * covarianceMat; //PDF Slides Gaussian Filters line 6 p.11 - correction of covariance matrix
 
-        for(int i=0; i<1; i++)
+        /*for(int i=0; i<1; i++)
         {
             if()
-        }
-
+        }*/
+        covar_pose(cov_pose);
+        cov_pub.publish(cov_pose);
     }
-
+    //Matrizen anpassen
     void updateMatrices()
     {
-        A << 1, 0, dt, 0, 0, 0,
-             0, 1, 0, dt, 0, 0,
-             0, 0, 1, 0, dt, 0,
-             0, 0, 0, 1, 0, dt,
-             0, 0, 0, 0, 1, 0,
-             0, 0, 0, 0, 0, 1;
+        A << 1, 0, 0, dt, 0, 0,
+             0, 1, 0, 0, dt, 0,
+             0, 0, 1, 0, 0, dt,
+             0, 0, 0, 0.5, 0, 0,
+             0, 0, 0, 0, 0.5, 0,
+             0, 0, 0, 0, 0, 0.5;
 
-        B << cos(theta)*dt, 0,
-             sin(theta)*dt, 0,
-             0, cos(theta)*dt,
-             0, sin(theta)*dt,
-             1, 0,
-             0, 1;
+        double tmp1 = (0.5*cos(xt[2]));
+        double tmp2 = (0.5*sin(xt[2]));
 
-        C << 1, 0, 1, 1, dt,
-             1, dt, dt*dt/2.0, dt*dt/2.0, dt*dt/6.0;
+        B << 0, 0,
+             0, 0,
+             0, 0,
+             tmp1, 0,
+             tmp2, 0,
+             0, 0.5;
+
+        //bad values
+         C << 1, 0, 0, 1, 1, dt,
+              1, dt, 0, dt*dt/2.0, dt*dt/2.0, dt*dt/6.0;
+
     }
 
     void updateTime()
@@ -213,42 +259,79 @@ class kfFilter
         delta_w_angular = w_angular - w_angular_1;  //calculation of the difference of angular velocities
         w_angular_1 = w_angular;                    //set the current angular velocity to t-1
 
-
-        predict(A, B, ut, R);
+        ut[0] = v_linear;
+        ut[1] = w_angular;
+        //std::cout << "hier wird odom aufgerufen!"<< std::endl;
+        std::cout<<ut.transpose()<<std::endl;
+        predict(A, B, ut);
     }
 
-    void cova_pose(geometry_msgs::PoseWithCovarianceStamped &cov_pose)
+    void covar_pose(geometry_msgs::PoseWithCovarianceStamped &pose)
     {
         std::string fixed_frame = "map";
-        //geometry_msgs::PoseWithCovarianceStamped cov_pose;
-        cov_pose.header.frame_id = fixed_frame;
-        cov_pose.header.stamp = ros::Time::now();
+    //geometry_msgs::PoseWithCovarianceStamped pose;
+    pose.header.frame_id = fixed_frame;
+    pose.header.stamp = ros::Time::now();
 
-        // set x,y coord
-        cov_pose.pose.pose.position.x = xt[0];
-        cov_pose.pose.pose.position.y = xt[1];
-        cov_pose.pose.pose.position.z = 0.0;
+    // set x,y coord
+    pose.pose.pose.position.x = xt[0];
+    pose.pose.pose.position.y = xt[1];
+    pose.pose.pose.position.z = 0.0;
 
+    //pose.pose.covariance[0]=covarianceMat(0,0); 
+    //pose.pose.covariance[7]=covarianceMat(1,1);
+    //pose.pose.covariance[35]=covarianceMat(4,4);
 
-        // set theta
-        tf::Quaternion quat;
-        quat.setRPY(0.0, 0.0, theta);
-        tf::quaternionTFToMsg(quat, cov_pose.pose.pose.orientation);
+    // set theta
+    tf::Quaternion quat;
+    quat.setRPY(0.0, 0.0, xt[2]);
+    tf::quaternionTFToMsg(quat, pose.pose.pose.orientation);
 
-        for (int i = 0; i<6; i++)
-        {
-            for(int j = 0; j<6; j++)
-            {
-                cov_pose.pose.covariance[6*i+j] = covarianceMat.coeff(i,j);
-            }
+    for (int i=0; i<6; ++i)
+      {
+        for (int j=0; j<6; ++j)
+        {    
+          pose.pose.covariance[6*i+j] = covarianceMat.coeff(i,j);
         }
-
-        cov_pub.publish(cov_pose);
+      }
     }
+
+    // void cova_pose(const Eigen::VectorXd &state, const Eigen::MatrixXd &covariance)
+    // {
+
+    //     geometry_msgs::PoseWithCovarianceStamped cov_msg;
+    //     cov_msg.header.stamp = ros::Time::now();
+    //     cov_msg.header.frame_id = "base_link";
+    //     cov_msg.pose.pose.position.x= state[0];
+    //     cov_msg.pose.pose.position.y=state[1];
+
+    //     tf2::Quaternion q;
+    //     q.setRPY(0, 0, state[2]);
+    //     cov_msg.pose.pose.orientation.x=q.x();
+    //     cov_msg.pose.pose.orientation.y=q.y();
+    //     cov_msg.pose.pose.orientation.z=q.z();
+    //     cov_msg.pose.pose.orientation.w=q.w();
+
+    //     for (int i =0; i< 36;i++)
+    //         {
+                
+    //             cov_msg.pose.covariance[i] = 0;
+                
+    //         }
+            
+    //         //schreibe nur auf die x,y und orientrungs positionen in der covarinaz
+    //         cov_msg.pose.covariance[0]=covariance(0,0); 
+    //         cov_msg.pose.covariance[7]=covariance(1,1);
+    //         cov_msg.pose.covariance[35]=covariance(4,4);
+
+    //         cov_pub.publish(cov_msg);
+
+
+    // }
 
     void laserscan_callback(const sensor_msgs::LaserScan::ConstPtr& laser)
     {
-        
+        //std::cout<<"hier ist der laser callback!"<<std::endl;
         ranges = laser->ranges;
         measurements = ranges.size(); 
         correction(z, C, Q);
@@ -259,13 +342,17 @@ class kfFilter
 };
 
 
-
-
 int main(int argc, char** argv)
 {
 
     ros::init(argc, argv, "kfloc");
+    // ros::NodeHandle n;
     kfFilter kf;
+    // ros::Subscriber sub = n.subscribe<nav_msgs::Odometry>("odom",1,&kfFilter::callback_odom, &kf);
+    // ros::Subscriber sub_laser = n.subscribe("scan",1,&kfFilter::laserscan_callback, &kf);
+    // ros::Publisher cov_pub = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("/covariance",1);
+    // ros::Publisher pubkpose = n.advertise<geometry_msgs::PoseWithCovarianceStamped> ("/kfpose", 1);
+    
 
 
     ros::spin();

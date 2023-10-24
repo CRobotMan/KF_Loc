@@ -50,10 +50,11 @@
     <param name="odom_frame_id"             value="odom"/>
     <param name="base_frame_id"             value="base_footprint"/>
   </node>
-    <node name ="rviz" pkg="rviz" type="rviz" args="-d $(find rezvan_kfloc)/config/rviz_config.rviz"/> 
+    <node name ="rviz" pkg="rviz" type="rviz" args="-d $(find rezvan_kfloc)/config/rviz_config.rviz"/>
     
     <include file="$(find rezvan_kfloc)/launch/move_base.launch" /> 
 
     <node  name = "move_base_robot" pkg="rezvan_kfloc" type="move_base_robot" output = "screen"/>  
+    <!-- <node  name = "kfloc" pkg="rezvan_kfloc" type="kfloc" output = "screen"/> -->
 
     </launch>
